@@ -5,9 +5,8 @@ import FileUploader from './components/FileUploader';
 import VideoPlayer from './components/VideoPlayer';
 import { io } from 'socket.io-client';
 
-const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_MODEL = 'openai/gpt-oss-120b';
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+
 const App = () => {
   const [images, setImages] = useState([]);
   const [audio, setAudio] = useState(null);
@@ -22,72 +21,6 @@ const App = () => {
   const renderingStartedRef = useRef(false);
   const lastRenderPercentRef = useRef(null);
   const renderPhaseRef = useRef(1);
-  const groqApiKey = import.meta.env.VITE_GROQ_API_KEY;
-
-  const extractJson = (text) => {
-    if (!text) return null;
-    let jsonText = text.trim();
-    if (jsonText.startsWith('```')) {
-      jsonText = jsonText.replace(/^```[a-zA-Z]*\s*/g, '').replace(/```$/g, '').trim();
-    }
-    if (jsonText.includes('{') && jsonText.includes('}')) {
-      jsonText = jsonText.slice(jsonText.indexOf('{'), jsonText.lastIndexOf('}') + 1);
-    }
-    return JSON.parse(jsonText);
-  };
-
-  const buildAiPlan = async ({ imageFiles, audioFile, durationSeconds }) => {
-    const imageNames = imageFiles.map((file) => file.name);
-    const prompt = `
-You are a video editing assistant.
-Given ${imageNames.length} images and audio duration ${Math.round(durationSeconds)} seconds,
-suggest for each image:
-- duration (seconds)
-- transition type (fade, slide_left, slide_right, zoom, etc.)
-- motion type (zoom_in, move_left, move_right, zoom_out)
-- motion speed (0.5-1.5)
-Also suggest layout_mode (blur_bg, fill) and motion_type for the video.
-Return output as JSON with keys "images" and "video_settings".
-The "images" value must be a list of dicts with keys:
-- path
-- duration
-- transition
-- motion
-- motion_speed
-motion_type must be one of {"move_right","zoom_in","move_left","zoom_out"}
-available images: ${imageNames.map((n) => `"${n}"`).join(', ')}
-Return ONLY valid JSON. No extra text, no code fences.
-`.trim();
-
-    const response = await fetch(GROQ_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${groqApiKey}`
-      },
-      body: JSON.stringify({
-        model: GROQ_MODEL,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.7,
-        max_completion_tokens: 2048,
-        top_p: 1,
-        stream: false
-      })
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Groq API error: ${response.status} ${errText}`);
-    }
-
-    const data = await response.json();
-    const content = data?.choices?.[0]?.message?.content || '';
-    const plan = extractJson(content);
-    if (!plan) {
-      throw new Error('Failed to parse AI plan JSON.');
-    }
-    return plan;
-  };
   const socketRef = useRef(null);
   const currentTaskIdRef = useRef(null);
 
@@ -185,6 +118,8 @@ Return ONLY valid JSON. No extra text, no code fences.
     // Array.from(images).forEach((file) => formData.append('images', file));
     formData.append('audio', audio);
     formData.append('output_name', `aivid_${Date.now()}.mp4`);
+    Array.from(images).forEach((file) => formData.append('images', file));
+    formData.append('plan_mode', planMode);
 
     // Request Settings
     let settings = {
@@ -193,48 +128,19 @@ Return ONLY valid JSON. No extra text, no code fences.
       motion_speed: 0.8,
       layout_mode: "blur_bg",
       frame_size: [1080, 1920],
-      // plan_mode: planMode
+      plan_mode: planMode
     };
 
     try {
       const durationSeconds = await getAudioDuration(audio);
 
       if (planMode === 'ai') {
-        if (!groqApiKey) {
-          alert('Missing VITE_GROQ_API_KEY. Add it to your .env and restart the dev server.');
-          setLoading(false);
-          return;
-        }
-        const plan = await buildAiPlan({
-          imageFiles: Array.from(images),
-          audioFile: audio,
-          durationSeconds
-        });
-        settings = {
-          ...settings,
-          ...plan.video_settings,
-          // images: plan.images
-        };
-        console.log('AI Plan:', plan);
-        formData.append('plan_json', JSON.stringify(plan));
-        const imageByName = new Map(Array.from(images).map((file) => [file.name, file]));
-        Array.from(plan.images).forEach((img) => {
-          const imgName = typeof img === 'string' ? img : img?.path || img?.name;
-          const file = imgName ? imageByName.get(imgName) : null;
-          if (file) {
-            formData.append('images', file);
-          } else {
-            console.warn('AI plan referenced missing image:', imgName);
-          }
-        });
-        // formData.append('plan_json', JSON.stringify(plan));
-      }
-      else {  
-        Array.from(images).forEach((file) => formData.append('images', file));
+        console.info(
+          'AI planning must be performed by the backend. The frontend no longer sends provider API keys or makes direct LLM calls.'
+        );
       }
 
       formData.append('settings_json', JSON.stringify(settings));
-      // formData.append('plan_mode', planMode);
 
       const response = await axios.post(`${BACKEND_URL}/generate-video-upload`, formData);
 
@@ -315,7 +221,7 @@ Return ONLY valid JSON. No extra text, no code fences.
               <div className="mt-2 text-[11px] text-[#64748b]">
                 {planMode === 'simple'
                   ? 'Uses fixed transitions and motion settings.'
-                  : 'Uses the LLM planner to select per-image timing and transitions.'}
+                  : 'Requests AI planning from the backend service so API keys stay off the client.'}
               </div>
             </div>
 
