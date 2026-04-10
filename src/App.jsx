@@ -5,7 +5,7 @@ import FileUploader from './components/FileUploader';
 import VideoPlayer from './components/VideoPlayer';
 import { io } from 'socket.io-client';
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = "https://editor-backend-kiq0.onrender.com" || 'http://localhost:8000';
 
 const App = () => {
   const [images, setImages] = useState([]);
@@ -119,7 +119,7 @@ const App = () => {
     formData.append('audio', audio);
     formData.append('output_name', `aivid_${Date.now()}.mp4`);
     Array.from(images).forEach((file) => formData.append('images', file));
-    formData.append('plan_mode', planMode);
+    // formData.append('plan_mode', planMode);
 
     // Request Settings
     let settings = {
@@ -128,7 +128,7 @@ const App = () => {
       motion_speed: 0.8,
       layout_mode: "blur_bg",
       frame_size: [1080, 1920],
-      plan_mode: planMode
+      // plan_mode: planMode
     };
 
     try {
